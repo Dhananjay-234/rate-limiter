@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+    Rate Limiter Gateway Demo Dashboard
+    If fetch fails with CORS errors when opening this file (file:// or http://localhost),
+    add a CorsWebFilter bean to the Spring gateway allowing origins such as
+    http://localhost and null/file origins for local HTML demos.
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rate Limiter Gateway — Demo Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --blue: #3b82f6;
+      --radius: 10px;
+      --font: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    .banner {
+      display: none;
+      background: #7f1d1d;
+      color: #fecaca;
+      padding: 12px 20px;
+      text-align: center;
+      font-weight: 500;
+      border-bottom: 2px solid var(--red);
+    }
+
+    .banner.visible { display: block; }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+
+    header {
+      margin-bottom: 28px;
+    }
+
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 1.65rem;
+      font-weight: 700;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      margin-bottom: 20px;
+    }
+
+    section h2 {
+      margin: 0 0 16px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    select, input[type="number"], input[type="text"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    select { min-width: 200px; }
+
+    input[type="number"] { width: 120px; }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    button:active:not(:disabled) { transform: scale(0.98); }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.35);
+    }
+
+    .badge.hidden { display: none; }
+
+    .token-row {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .token-field {
+      flex: 1;
+      min-width: 200px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 10px;
+    }
+
+    .result-card {
+      margin-top: 16px;
+      padding: 16px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .result-card.hidden { display: none; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-bottom: 12px;
+    }
+
+    .status-200 { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .status-429 { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .status-other { background: rgba(245, 158, 11, 0.2); color: var(--amber); }
+
+    .headers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .header-item {
+      font-size: 0.82rem;
+    }
+
+    .header-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    pre.json {
+      margin: 0;
+      padding: 12px;
+      background: var(--bg);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      max-height: 200px;
+    }
+
+    .burst-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .field { display: flex; flex-direction: column; }
+
+    .counters {
+      display: flex;
+      gap: 24px;
+      margin: 16px 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+
+    .counters .allowed { color: var(--green); }
+    .counters .rejected { color: var(--red); }
+
+    .chip-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      max-height: 120px;
+      overflow-y: auto;
+      padding: 10px;
+      background: var(--bg);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .chip {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .chip.ok { background: var(--green); }
+    .chip.limit { background: var(--red); }
+    .chip.err { background: var(--amber); }
+
+    .chart-wrap {
+      position: relative;
+      height: 220px;
+      margin-bottom: 16px;
+    }
+
+    .summary {
+      padding: 14px;
+      background: var(--surface2);
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    .summary.hidden { display: none; }
+
+    .degraded {
+      color: var(--amber);
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+
+    @media (max-width: 600px) {
+      .wrap { padding: 16px 12px; }
+      section { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="gatewayBanner" class="banner">
+    Can't reach gateway at localhost:8080 — is it running?
+  </div>
+
+  <div class="wrap">
+    <header>
+      <h1>Rate Limiter Gateway</h1>
+      <p>Demo dashboard · <code style="color: var(--muted)">http://localhost:8080</code></p>
+    </header>
+
+    <!-- 1. Token panel -->
+    <section id="tokenSection">
+      <h2>Token</h2>
+      <div class="row">
+        <div>
+          <label for="tenantSelect">Tenant</label>
+          <select id="tenantSelect">
+            <option value="acme-free">acme-free (FREE · 60/min)</option>
+            <option value="acme-pro">acme-pro (PRO · 300/min)</option>
+            <option value="acme-enterprise">acme-enterprise (ENTERPRISE · 1000/min)</option>
+            <option value="acme-sliding">acme-sliding (PRO · sliding window)</option>
+            <option value="acme-custom">acme-custom (FREE · 120/min override)</option>
+          </select>
+        </div>
+        <div style="align-self: flex-end">
+          <button type="button" class="btn-primary" id="getTokenBtn">Get Token</button>
+        </div>
+        <span id="tokenBadge" class="badge hidden">
+          <span aria-hidden="true">✓</span>
+          <span id="tokenBadgeText">Token acquired</span>
+        </span>
+      </div>
+      <div class="token-row">
+        <input type="text" id="tokenDisplay" class="token-field" readonly placeholder="Token appears here after fetch…" />
+        <button type="button" class="btn-secondary" id="copyTokenBtn" disabled>Copy</button>
+      </div>
+    </section>
+
+    <!-- 2. Single request -->
+    <section id="singleSection">
+      <h2>Single request</h2>
+      <div class="row">
+        <button type="button" class="btn-secondary" id="pingABtn" disabled>Call /api/a/ping</button>
+        <button type="button" class="btn-secondary" id="pingBBtn" disabled>Call /api/b/ping</button>
+      </div>
+      <p id="singleHint" class="hint">Get a token first to enable ping calls.</p>
+      <div id="singleResult" class="result-card hidden"></div>
+    </section>
+
+    <!-- 3. Burst tester -->
+    <section id="burstSection">
+      <h2>Burst tester</h2>
+      <div class="burst-controls">
+        <div class="field">
+          <label for="burstCount">Number of requests to fire</label>
+          <input type="number" id="burstCount" min="1" max="5000" value="70" />
+        </div>
+        <div class="field">
+          <label for="burstDelay">Delay between requests (ms)</label>
+          <input type="number" id="burstDelay" min="0" max="10000" value="50" />
+        </div>
+        <div class="field">
+          <label for="burstEndpoint">Endpoint</label>
+          <select id="burstEndpoint">
+            <option value="/api/a/ping">/api/a/ping</option>
+            <option value="/api/b/ping">/api/b/ping</option>
+          </select>
+        </div>
+        <button type="button" class="btn-primary" id="burstStartBtn" disabled>Start Burst</button>
+        <button type="button" class="btn-danger hidden" id="burstStopBtn">Stop</button>
+      </div>
+
+      <div class="counters">
+        <span class="allowed">Allowed: <span id="countAllowed">0</span></span>
+        <span class="rejected">Rejected: <span id="countRejected">0</span></span>
+      </div>
+
+      <div id="chipStrip" class="chip-strip" aria-label="Request results timeline"></div>
+
+      <div class="chart-wrap">
+        <canvas id="remainingChart"></canvas>
+      </div>
+
+      <div id="burstSummary" class="summary hidden"></div>
+    </section>
+  </div>
+
+  <script>
+    const GATEWAY = 'http://localhost:8080';
+
+    const TENANT_TIER = {
+      'acme-free': 'FREE',
+      'acme-pro': 'PRO',
+      'acme-enterprise': 'ENTERPRISE',
+      'acme-sliding': 'PRO',
+      'acme-custom': 'FREE'
+    };
+
+    let jwtToken = null;
+    let tokenMeta = null;
+    let burstAbort = false;
+    let remainingChart = null;
+
+    const $ = (id) => document.getElementById(id);
+
+    function showGatewayBanner(show) {
+      $('gatewayBanner').classList.toggle('visible', show);
+    }
+
+    function truncateToken(t) {
+      if (!t || t.length <= 48) return t || '';
+      return t.slice(0, 24) + '…' + t.slice(-16);
+    }
+
+    function updateTokenUI() {
+      const has = !!jwtToken;
+      $('pingABtn').disabled = !has;
+      $('pingBBtn').disabled = !has;
+      $('burstStartBtn').disabled = !has;
+      $('copyTokenBtn').disabled = !has;
+      $('singleHint').style.display = has ? 'none' : 'block';
+      $('tokenDisplay').value = has ? truncateToken(jwtToken) : '';
+      $('tokenDisplay').title = has ? jwtToken : '';
+    }
+
+    function statusClass(code) {
+      if (code === 200) return 'status-200';
+      if (code === 429) return 'status-429';
+      return 'status-other';
+    }
+
+    function pickRateHeaders(res) {
+      const names = [
+        'X-RateLimit-Limit',
+        'X-RateLimit-Remaining',
+        'X-RateLimit-Reset',
+        'Retry-After',
+        'X-RateLimit-Degraded'
+      ];
+      const out = {};
+      names.forEach((n) => {
+        const v = res.headers.get(n);
+        if (v != null) out[n] = v;
+      });
+      return out;
+    }
+
+    function renderHeadersGrid(headers) {
+      return Object.entries(headers)
+        .map(
+          ([k, v]) =>
+            `<div class="header-item"><span>${escapeHtml(k)}</span>${escapeHtml(v)}</div>`
+        )
+        .join('');
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function gatewayFetch(path, options = {}) {
+      const url = path.startsWith('http') ? path : GATEWAY + path;
+      const headers = { ...(options.headers || {}) };
+      if (jwtToken && !headers.Authorization) {
+        headers.Authorization = 'Bearer ' + jwtToken;
+      }
+      try {
+        const res = await fetch(url, { ...options, headers });
+        showGatewayBanner(false);
+        return res;
+      } catch (e) {
+        showGatewayBanner(true);
+        throw e;
+      }
+    }
+
+    async function getToken() {
+      const tenantId = $('tenantSelect').value;
+      const tier = TENANT_TIER[tenantId];
+      $('getTokenBtn').disabled = true;
+      try {
+        const res = await gatewayFetch(
+          `/dev/token?tenantId=${encodeURIComponent(tenantId)}&tier=${encodeURIComponent(tier)}`
+        );
+        if (!res.ok) {
+          const text = await res.text();
+          alert('Token request failed: ' + res.status + ' ' + text);
+          return;
+        }
+        const data = await res.json();
+        jwtToken = data.token;
+        tokenMeta = { tenantId: data.tenantId, tier: data.tier, expiresAt: data.expiresAt };
+        $('tokenBadge').classList.remove('hidden');
+        $('tokenBadgeText').textContent =
+          'Token acquired · ' + data.tenantId + ' · ' + data.tier;
+        updateTokenUI();
+      } catch (_) {
+        /* banner shown */
+      } finally {
+        $('getTokenBtn').disabled = false;
+      }
+    }
+
+    async function singlePing(path) {
+      const card = $('singleResult');
+      card.classList.remove('hidden');
+      card.innerHTML = '<span class="hint">Loading…</span>';
+      try {
+        const res = await gatewayFetch(path);
+        let body;
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          body = await res.json();
+        } else {
+          body = await res.text();
+        }
+        const rh = pickRateHeaders(res);
+        const degraded =
+          rh['X-RateLimit-Degraded'] != null
+            ? `<p class="degraded">⚠ Degraded mode (Redis was down): ${escapeHtml(rh['X-RateLimit-Degraded'])}</p>`
+            : '';
+        delete rh['X-RateLimit-Degraded'];
+
+        const bodyStr =
+          typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+
+        card.innerHTML = `
+          <div class="status-pill ${statusClass(res.status)}">HTTP ${res.status}</div>
+          <div class="headers-grid">${renderHeadersGrid(rh)}</div>
+          ${degraded}
+          <pre class="json">${escapeHtml(bodyStr)}</pre>
+        `;
+      } catch (e) {
+        card.innerHTML =
+          '<div class="status-pill status-other">Network error</div><pre class="json">' +
+          escapeHtml(String(e.message || e)) +
+          '</pre>';
+      }
+    }
+
+    function initChart() {
+      const ctx = $('remainingChart').getContext('2d');
+      if (remainingChart) remainingChart.destroy();
+      remainingChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'X-RateLimit-Remaining',
+              data: [],
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              fill: true,
+              tension: 0.2,
+              pointRadius: 0,
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          scales: {
+            x: {
+              title: { display: true, text: 'Request #', color: '#8b9cb3' },
+              ticks: { color: '#8b9cb3', maxTicksLimit: 12 },
+              grid: { color: '#2d3a4f' }
+            },
+            y: {
+              title: { display: true, text: 'Remaining', color: '#8b9cb3' },
+              ticks: { color: '#8b9cb3' },
+              grid: { color: '#2d3a4f' },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: { labels: { color: '#e7ecf3' } }
+          }
+        }
+      });
+    }
+
+    function appendChip(strip, status) {
+      const chip = document.createElement('div');
+      chip.className =
+        'chip ' + (status === 200 ? 'ok' : status === 429 ? 'limit' : 'err');
+      chip.title = 'HTTP ' + status;
+      strip.appendChild(chip);
+      strip.scrollTop = strip.scrollHeight;
+    }
+
+    function pushChartPoint(index, remaining) {
+      if (!remainingChart) return;
+      const rem =
+        remaining === null || remaining === undefined || remaining === ''
+          ? null
+          : Number(remaining);
+      remainingChart.data.labels.push(String(index));
+      remainingChart.data.datasets[0].data.push(
+        Number.isFinite(rem) ? rem : null
+      );
+      remainingChart.update('none');
+    }
+
+    function formatResetCountdown(resetHeader) {
+      if (!resetHeader) return 'unknown';
+      let resetSec = Number(resetHeader);
+      if (!Number.isFinite(resetSec)) return escapeHtml(resetHeader);
+      if (resetSec > 1e12) resetSec = Math.floor(resetSec / 1000);
+      const now = Math.floor(Date.now() / 1000);
+      let delta = resetSec - now;
+      if (delta < 0) delta = 0;
+      return 'resets in ' + delta + 's';
+    }
+
+    async function runBurst() {
+      burstAbort = false;
+      const count = Math.max(1, parseInt($('burstCount').value, 10) || 70);
+      const delay = Math.max(0, parseInt($('burstDelay').value, 10) || 0);
+      const path = $('burstEndpoint').value;
+
+      $('burstStartBtn').classList.add('hidden');
+      $('burstStopBtn').classList.remove('hidden');
+      $('burstCount').disabled = true;
+      $('burstDelay').disabled = true;
+      $('burstEndpoint').disabled = true;
+
+      $('chipStrip').innerHTML = '';
+      $('countAllowed').textContent = '0';
+      $('countRejected').textContent = '0';
+      $('burstSummary').classList.add('hidden');
+
+      initChart();
+
+      let allowed = 0;
+      let rejected = 0;
+      let lastReset = null;
+
+      for (let i = 1; i <= count; i++) {
+        if (burstAbort) break;
+
+        let status = 0;
+        let remaining = null;
+        try {
+          const res = await gatewayFetch(path);
+          status = res.status;
+          remaining = res.headers.get('X-RateLimit-Remaining');
+          lastReset = res.headers.get('X-RateLimit-Reset') || lastReset;
+          if (status === 200) allowed++;
+          else if (status === 429) rejected++;
+          await res.text().catch(() => {});
+        } catch (_) {
+          status = 0;
+        }
+
+        appendChip($('chipStrip'), status || 500);
+        pushChartPoint(i, remaining);
+        $('countAllowed').textContent = String(allowed);
+        $('countRejected').textContent = String(rejected);
+
+        if (i < count && !burstAbort && delay > 0) {
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+
+      $('burstStartBtn').classList.remove('hidden');
+      $('burstStopBtn').classList.add('hidden');
+      $('burstCount').disabled = false;
+      $('burstDelay').disabled = false;
+      $('burstEndpoint').disabled = false;
+
+      const total = allowed + rejected;
+      const summary = $('burstSummary');
+      summary.classList.remove('hidden');
+      summary.innerHTML =
+        '<strong>Burst complete</strong><br>' +
+        'Total allowed: <span style="color: var(--green)">' +
+        allowed +
+        '</span> · Total rejected: <span style="color: var(--red)">' +
+        rejected +
+        '</span> · Requests sent: ' +
+        total +
+        (burstAbort ? ' (stopped early)' : '') +
+        '<br>Quota ' +
+        formatResetCountdown(lastReset);
+    }
+
+    $('getTokenBtn').addEventListener('click', getToken);
+    $('copyTokenBtn').addEventListener('click', async () => {
+      if (!jwtToken) return;
+      try {
+        await navigator.clipboard.writeText(jwtToken);
+        $('copyTokenBtn').textContent = 'Copied!';
+        setTimeout(() => {
+          $('copyTokenBtn').textContent = 'Copy';
+        }, 1500);
+      } catch (_) {
+        prompt('Copy token:', jwtToken);
+      }
+    });
+    $('pingABtn').addEventListener('click', () => singlePing('/api/a/ping'));
+    $('pingBBtn').addEventListener('click', () => singlePing('/api/b/ping'));
+    $('burstStartBtn').addEventListener('click', runBurst);
+    $('burstStopBtn').addEventListener('click', () => {
+      burstAbort = true;
+    });
+
+    updateTokenUI();
+    initChart();
+  </script>
+</body>
+</html>

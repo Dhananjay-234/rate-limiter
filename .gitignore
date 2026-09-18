@@ -1,0 +1,14 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+*.iml
+.idea/
+.vscode/
+*.log
+
+results/
+load-test/target/
+benchmarks/__pycache__/
+
+.DS_Store

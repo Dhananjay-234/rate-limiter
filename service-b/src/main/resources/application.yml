@@ -1,0 +1,12 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: service-b
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,92 @@
+databases:
+  - name: rl-postgres
+    plan: free
+    databaseName: ratelimiter
+    user: ratelimiter
+
+services:
+  - type: keyvalue
+    name: rl-redis
+    plan: free
+
+  - type: web
+    name: service-a
+    runtime: docker
+    dockerfilePath: ./infra/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: MODULE
+        value: service-a
+      - key: PORT
+        value: 8081
+
+  - type: web
+    name: service-b
+    runtime: docker
+    dockerfilePath: ./infra/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: MODULE
+        value: service-b
+      - key: PORT
+        value: 8082
+
+  - type: web
+    name: api-gateway
+    runtime: docker
+    dockerfilePath: ./infra/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: MODULE
+        value: api-gateway
+      - key: PORT
+        value: 8080
+      - key: REDIS_HOST
+        fromService:
+          type: keyvalue
+          name: rl-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: keyvalue
+          name: rl-redis
+          property: port
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: rl-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: rl-postgres
+          property: port
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: rl-postgres
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: rl-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: rl-postgres
+          property: password
+      - key: SERVICE_A_HOSTPORT
+        fromService:
+          type: web
+          name: service-a
+          property: hostport
+      - key: SERVICE_B_HOSTPORT
+        fromService:
+          type: web
+          name: service-b
+          property: hostport
+      - key: RATELIMITER_ENABLED
+        value: "true"
+      - key: RATELIMITER_FAIL_OPEN
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true

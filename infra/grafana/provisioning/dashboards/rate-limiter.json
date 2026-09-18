@@ -1,0 +1,169 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "title": "API Rate Limiter",
+  "uid": "rate-limiter-main",
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Decisions per second (allowed vs rejected)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 12 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(rate_limiter_requests_total[1m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rejection rate (%)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 2, "fillOpacity": 12 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(rate_limiter_requests_total{result=\"rejected\"}[1m])) / clamp_min(sum(rate(rate_limiter_requests_total[1m])), 0.001)",
+          "legendFormat": "rejection %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis Lua script latency (p50 / p95 / p99)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 0 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(rate_limiter_redis_latency_seconds_bucket[1m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(rate_limiter_redis_latency_seconds_bucket[1m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_redis_latency_seconds_bucket[1m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit breaker state (1 = open)",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "custom": { "lineWidth": 2, "fillOpacity": 25, "lineInterpolation": "stepAfter" }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state{state=\"open\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Fail-open admissions (Redis unavailable)",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate_limiter_fail_open_total)",
+          "legendFormat": "fail-open total",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Traffic by tenant",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (rate(rate_limiter_requests_total[1m]))",
+          "legendFormat": "{{tenant}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway HTTP responses by status",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["rate-limiter", "spring-boot", "redis"],
+  "templating": { "list": [] },
+  "timezone": "browser"
+}

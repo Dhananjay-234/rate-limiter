@@ -1,0 +1,93 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 200ms
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+
+  r2dbc:
+    url: r2dbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ratelimiter}
+    username: ${POSTGRES_USER:ratelimiter}
+    password: ${POSTGRES_PASSWORD:ratelimiter}
+    pool:
+      initial-size: 5
+      max-size: 20
+
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 3s
+      routes:
+        - id: service-a
+          uri: http://${SERVICE_A_HOSTPORT:localhost:8081}
+          predicates:
+            - Path=/api/a/**
+          filters:
+            - name: RateLimiter
+              args:
+                routeKey: service-a
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: serviceACircuitBreaker
+                fallbackUri: forward:/fallback/service-a
+
+        - id: service-b
+          uri: http://${SERVICE_B_HOSTPORT:localhost:8082}
+          predicates:
+            - Path=/api/b/**
+          filters:
+            - name: RateLimiter
+              args:
+                routeKey: service-b
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: serviceBCircuitBreaker
+                fallbackUri: forward:/fallback/service-b
+
+ratelimiter:
+  # Set to false to run the benchmark baseline with the limiter out of the path.
+  enabled: ${RATELIMITER_ENABLED:true}
+  # true  -> Redis outage admits traffic (availability first)
+  # false -> Redis outage rejects with 503 (correctness first)
+  fail-open: ${RATELIMITER_FAIL_OPEN:true}
+  key-ttl-seconds: 3600
+  tenant-cache-ttl-seconds: 60
+
+security:
+  jwt:
+    # Demo secret. Override with an env var in any real deployment.
+    secret: ${JWT_SECRET:change-me-this-is-a-demo-secret-please-rotate-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: api-gateway
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+logging:
+  level:
+    dev.dhananjay.ratelimiter: INFO
+    org.springframework.cloud.gateway: INFO
