@@ -4,10 +4,15 @@ databases:
     databaseName: ratelimiter
     user: ratelimiter
 
+    
+
 services:
   - type: keyvalue
     name: rl-redis
     plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: allow all (needed since gateway connects over the network)
 
   - type: web
     name: service-a
