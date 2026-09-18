@@ -303,6 +303,57 @@
       margin-top: 8px;
     }
 
+    .api-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .api-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .api-row .api-label {
+      min-width: 7rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .api-row a.api-url {
+      flex: 1;
+      min-width: 200px;
+      color: var(--blue);
+      font-family: ui-monospace, monospace;
+      font-size: 0.82rem;
+      word-break: break-all;
+      text-decoration: none;
+    }
+
+    .api-row a.api-url:hover {
+      text-decoration: underline;
+    }
+
+    .api-row .api-note {
+      width: 100%;
+      margin: 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      padding-left: calc(7rem + 8px);
+    }
+
+    @media (max-width: 600px) {
+      .api-row .api-note { padding-left: 0; }
+    }
+
     @media (max-width: 600px) {
       .wrap { padding: 16px 12px; }
       section { padding: 16px; }
@@ -311,14 +362,47 @@
 </head>
 <body>
   <div id="gatewayBanner" class="banner">
-    Can't Connect to the Server try again later!
+    Can't reach the gateway — check the URL below or try again later.
   </div>
 
   <div class="wrap">
     <header>
       <h1>Rate Limiter Gateway</h1>
-      <p>Demo dashboard · <code style="color: var(--muted)">https://api-gateway-euyb.onrender.com</code></p>
+      <p id="headerSubtitle">Demo dashboard · rate-limited calls go through the API gateway.</p>
     </header>
+
+    <section id="envSection" aria-label="API endpoints">
+      <h2>API endpoints</h2>
+      <div class="row" style="margin-bottom: 14px">
+        <div>
+          <label for="envSelect">Environment</label>
+          <select id="envSelect">
+            <option value="render" selected>Render (production demo)</option>
+            <option value="local">Local (docker compose)</option>
+          </select>
+        </div>
+      </div>
+      <div class="api-panel">
+        <div class="api-row">
+          <span class="api-label">API gateway</span>
+          <a id="linkGateway" class="api-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <button type="button" class="btn-secondary btn-copy-api" data-copy="gateway">Copy</button>
+          <p class="api-note">Token minting, <code>/api/a/ping</code>, <code>/api/b/ping</code>, and burst tests use this base URL.</p>
+        </div>
+        <div class="api-row">
+          <span class="api-label">Service A</span>
+          <a id="linkServiceA" class="api-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <button type="button" class="btn-secondary btn-copy-api" data-copy="serviceA">Copy</button>
+          <p class="api-note">Downstream directly · <a id="linkServiceAPing" class="api-url" href="#" target="_blank" rel="noopener noreferrer">/ping</a> (no JWT). Gateway route: <code>/api/a/ping</code>.</p>
+        </div>
+        <div class="api-row">
+          <span class="api-label">Service B</span>
+          <a id="linkServiceB" class="api-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <button type="button" class="btn-secondary btn-copy-api" data-copy="serviceB">Copy</button>
+          <p class="api-note">Downstream directly · <a id="linkServiceBPing" class="api-url" href="#" target="_blank" rel="noopener noreferrer">/ping</a> (no JWT). Gateway route: <code>/api/b/ping</code>.</p>
+        </div>
+      </div>
+    </section>
 
     <!-- 1. Token panel -->
     <section id="tokenSection">
@@ -398,7 +482,21 @@
   </div>
 
   <script>
-    const GATEWAY = 'https://api-gateway-euyb.onrender.com';
+    const ENDPOINTS = {
+      render: {
+        gateway: 'https://api-gateway-euyb.onrender.com',
+        serviceA: 'https://service-a-nj43.onrender.com',
+        serviceB: 'https://service-b-f2mw.onrender.com'
+      },
+      local: {
+        gateway: 'http://localhost:8080',
+        serviceA: 'http://localhost:8081',
+        serviceB: 'http://localhost:8082'
+      }
+    };
+
+    let gatewayBase = ENDPOINTS.render.gateway;
+    let currentEnv = 'render';
 
     const TENANT_TIER = {
       'acme-free': 'FREE',
@@ -474,8 +572,51 @@
         .replace(/"/g, '&quot;');
     }
 
+    function getEndpoints() {
+      return ENDPOINTS[currentEnv] || ENDPOINTS.render;
+    }
+
+    function applyEnvironment(envKey) {
+      currentEnv = envKey in ENDPOINTS ? envKey : 'render';
+      const ep = getEndpoints();
+      gatewayBase = ep.gateway.replace(/\/$/, '');
+
+      $('linkGateway').href = ep.gateway;
+      $('linkGateway').textContent = ep.gateway;
+      $('linkServiceA').href = ep.serviceA;
+      $('linkServiceA').textContent = ep.serviceA;
+      $('linkServiceB').href = ep.serviceB;
+      $('linkServiceB').textContent = ep.serviceB;
+      $('linkServiceAPing').href = ep.serviceA + '/ping';
+      $('linkServiceAPing').textContent = ep.serviceA + '/ping';
+      $('linkServiceBPing').href = ep.serviceB + '/ping';
+      $('linkServiceBPing').textContent = ep.serviceB + '/ping';
+
+      $('headerSubtitle').textContent =
+        'Demo dashboard · active gateway: ' + ep.gateway;
+
+      jwtToken = null;
+      tokenMeta = null;
+      $('tokenBadge').classList.add('hidden');
+      $('singleResult').classList.add('hidden');
+      showGatewayBanner(false);
+      updateTokenUI();
+    }
+
+    async function copyApiUrl(kind) {
+      const ep = getEndpoints();
+      const map = { gateway: ep.gateway, serviceA: ep.serviceA, serviceB: ep.serviceB };
+      const text = map[kind];
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        prompt('Copy URL:', text);
+      }
+    }
+
     async function gatewayFetch(path, options = {}) {
-      const url = path.startsWith('http') ? path : GATEWAY + path;
+      const url = path.startsWith('http') ? path : gatewayBase + path;
       const headers = { ...(options.headers || {}) };
       if (jwtToken && !headers.Authorization) {
         headers.Authorization = 'Bearer ' + jwtToken;
@@ -723,6 +864,15 @@
       burstAbort = true;
     });
 
+    $('envSelect').addEventListener('change', (e) => {
+      applyEnvironment(e.target.value);
+    });
+
+    document.querySelectorAll('.btn-copy-api').forEach((btn) => {
+      btn.addEventListener('click', () => copyApiUrl(btn.getAttribute('data-copy')));
+    });
+
+    applyEnvironment('render');
     updateTokenUI();
     initChart();
   </script>
