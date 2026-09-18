@@ -1,7 +1,9 @@
 # Distributed API Rate Limiter — Project Documentation
 
-A per-tenant API rate limiter built on Spring Boot, Redis and Spring Cloud Gateway.
+A per-tenant API rate limiter built on Spring Boot, Redis, Postgres, and Spring Cloud Gateway.
 Two algorithms, atomic enforcement, circuit breaking, and a full observability stack.
+
+Stack: Spring Boot 3.3 · Java 17 (Maven compile target; Docker images use Temurin 21) · Redis 7 · Postgres 16.
 
 ---
 
@@ -49,7 +51,7 @@ Moving the whole decision into a Lua script turns a race into a guarantee.
                                                │
                                 ┌──────────────┴──────────────┐
                                 ▼                             ▼
-                          service-a:8081                service-b:8082
+                          service-a (PORT default 8081)   service-b (PORT default 8082)
 ```
 
 Metrics flow out of the gateway via Micrometer → Prometheus → Grafana.
@@ -59,17 +61,38 @@ Metrics flow out of the gateway via Micrometer → Prometheus → Grafana.
 | Module | Responsibility |
 |---|---|
 | `rate-limiter-core` | Algorithms, Lua scripts, metrics, configuration properties. No web dependencies — it is a library. |
-| `api-gateway` | Spring Cloud Gateway, the filter, JWT validation, tenant cache, admin endpoints. |
-| `service-a`, `service-b` | Trivial downstreams with a `/chaos` toggle so the circuit breaker can be demonstrated without killing containers. |
-| `infra` | Dockerfile, Prometheus scrape config, provisioned Grafana dashboard. |
+| `api-gateway` | Spring Cloud Gateway, the filter, JWT validation, tenant cache, `/dev/token`, `/internal/tenants`, fallbacks. |
+| `service-a`, `service-b` | Trivial downstreams: `/ping`, `/data`, and `/chaos/on` · `/chaos/off` for breaker demos. |
+| `infra` | Shared `Dockerfile` (build arg `MODULE`), Prometheus scrape config, provisioned Grafana dashboard. |
 
-### Request path in code
+### End-to-end request path
 
-1. `RateLimiterGatewayFilterFactory` — the filter, applied per route in `application.yml`
-2. `JwtTenantResolver` — verifies the HMAC signature, pulls `tenantId` and `tier` claims
-3. `CachingTenantConfigService` — Redis cache in front of Postgres
-4. `RateLimiterFactory` — strategy dispatch on the tenant's configured algorithm
-5. `TokenBucketLimiter` / `SlidingWindowLimiter` — each wraps one Lua script
+1. Client hits the **gateway** (default `http://localhost:8080`) with `Authorization: Bearer <JWT>`.
+2. `JwtTenantResolver` — verifies the HMAC signature, pulls `tenantId` and `tier` claims (`401` if invalid).
+3. `CachingTenantConfigService` — Redis cache in front of Postgres (algorithm, tier, `custom_limit`).
+4. `RateLimiterGatewayFilterFactory` — `RateLimiterFactory` dispatches to `TokenBucketLimiter` or `SlidingWindowLimiter`; each runs one Lua script via `EVALSHA` (`429` when exhausted).
+5. Spring Cloud Gateway forwards allowed requests: routes `/api/a/**` and `/api/b/**` use `StripPrefix=2`, so e.g. `/api/a/ping` becomes downstream `/ping`. Backend URIs are `http://${SERVICE_A_HOSTPORT:localhost:8081}` and the same pattern for B (host:port env vars, not a full URI).
+6. `CircuitBreaker` filter — on sustained downstream failure, Resilience4j opens and `/fallback/{service}` returns a structured `503`.
+
+### Request path in code (class map)
+
+1. `RateLimiterGatewayFilterFactory` — filter applied per route in `application.yml`
+2. `JwtTenantResolver` — JWT verification and tenant claims
+3. `CachingTenantConfigService` — cached tenant rows
+4. `RateLimiterFactory` — algorithm dispatch
+5. `TokenBucketLimiter` / `SlidingWindowLimiter` — Lua-backed limiters
+
+Seeded demo tenants (`api-gateway/src/main/resources/schema.sql`):
+
+| Tenant | Tier | Algorithm | Effective limit |
+|---|---|---|---|
+| `acme-free` | FREE | Token bucket | 60/min |
+| `acme-pro` | PRO | Token bucket | 300/min |
+| `acme-enterprise` | ENTERPRISE | Token bucket | 1,000/min |
+| `acme-sliding` | PRO | Sliding window | 300/min |
+| `acme-custom` | FREE | Token bucket | 120/min (`custom_limit`) |
+
+`GET /dev/token?tenantId=…&tier=…` embeds tier in the JWT; when the tenant exists in Postgres, limits and algorithm come from that row.
 
 ---
 
@@ -214,7 +237,7 @@ crosses the wire once rather than on every call.
 | Postgres unreachable | Apply `FREE` tier defaults | Wrong in the safe direction: a paying customer is briefly throttled harder, rather than everyone getting unlimited access. |
 | Unknown tenant | `FREE` tier | Same principle. No hard failure on the request path. |
 | Invalid or missing JWT | `401`, before the quota check | Identity must be established first. Otherwise a caller spends someone else's quota by claiming their tenant id. |
-| Downstream failing | Circuit opens after 5 failures in a 10-call window, `/fallback/{service}` returns a structured 503 | Stops a broken downstream from consuming gateway connections on timeouts it will never satisfy. |
+| Downstream failing | Resilience4j count-based breaker (window 10, min 5 calls, 50% failure threshold); `/fallback/{service}` returns structured 503 | Stops a broken downstream from consuming gateway connections on timeouts it will never satisfy. |
 | Unexpected exception in the filter | Governed by `ratelimiter.fail-open` | A bug in the limiter must not take the gateway down. |
 
 **Fail-open is configurable, not hardcoded** (`ratelimiter.fail-open`). That matters:
@@ -279,11 +302,34 @@ means quotas are not being enforced.
 docker compose up --build
 ```
 
-| Service | URL |
-|---|---|
-| Gateway | http://localhost:8080 |
-| Grafana | http://localhost:3000 (anonymous admin) |
-| Prometheus | http://localhost:9090 |
+Starts **Redis**, **Postgres**, **service-a**, **service-b**, **api-gateway**, **Prometheus**, and **Grafana**. Each Spring service binds its listen port from the environment:
+
+| Service | Default URL (local compose) | `application.yml` |
+|---|---|---|
+| API gateway | http://localhost:8080 | `server.port: ${PORT:8080}` |
+| service-a | http://localhost:8081 | `server.port: ${PORT:8081}` |
+| service-b | http://localhost:8082 | `server.port: ${PORT:8082}` |
+| Grafana | http://localhost:3000 (anonymous admin) | container image |
+| Prometheus | http://localhost:9090 | container image |
+
+The gateway routes to backends using **host:port** variables (Compose and Render set these; local defaults keep `localhost:8081` / `8082`):
+
+| Variable | Default when unset | `docker-compose.yml` (api-gateway) |
+|---|---|---|
+| `SERVICE_A_HOSTPORT` | `localhost:8081` | `service-a:8081` |
+| `SERVICE_B_HOSTPORT` | `localhost:8082` | `service-b:8082` |
+
+Gateway routes: `uri: http://${SERVICE_A_HOSTPORT:localhost:8081}` (and the same for B). Other gateway env vars used in compose / cloud: `REDIS_HOST`, `REDIS_PORT`, `POSTGRES_*`, `JWT_SECRET`, `RATELIMITER_ENABLED`, `RATELIMITER_FAIL_OPEN`.
+
+```yaml
+# api-gateway / service-a / service-b — ports and limiter toggles
+server:
+  port: ${PORT:8080}   # 8081 / 8082 on downstream modules
+
+ratelimiter:
+  enabled: ${RATELIMITER_ENABLED:true}
+  fail-open: ${RATELIMITER_FAIL_OPEN:true}
+```
 
 ### Exercise the limiter
 
@@ -294,6 +340,7 @@ TOKEN=$(curl -s "http://localhost:8080/dev/token?tenantId=acme-free&tier=FREE" \
 
 # Single request — inspect the quota headers
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/a/ping
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/b/ping
 
 # Exhaust the 60/min FREE quota and watch it flip to 429
 for i in $(seq 1 70); do
@@ -301,6 +348,8 @@ for i in $(seq 1 70); do
     -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/a/ping
 done; echo
 ```
+
+**Browser demo:** open [`index.html`](index.html) at the repo root with the gateway at `http://localhost:8080` (token panel, single ping, burst chart). If the browser blocks cross-origin requests, add a CORS filter on the gateway for your page origin.
 
 ### Compare algorithms live
 
@@ -312,9 +361,12 @@ curl -s "http://localhost:8080/dev/token?tenantId=acme-sliding&tier=PRO"
 
 ### Chaos: circuit breaker
 
+Chaos toggles are on **downstream** ports (8081 / 8082), not under `/api/a/…` on the gateway.
+
 ```bash
 curl http://localhost:8081/chaos/on     # service-a starts failing
-# hit /api/a/ping a few times — breaker opens, /fallback/service-a serves 503
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/a/ping
+# repeat — breaker opens, /fallback/service-a serves 503
 curl http://localhost:8081/chaos/off    # recovers automatically
 ```
 
@@ -326,6 +378,18 @@ curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/a/ping
 # 200 with X-RateLimit-Degraded: true — failed open, counter incremented
 docker start rl-redis
 ```
+
+### Deploy on Render
+
+[`render.yaml`](render.yaml) is a Blueprint for Postgres (`rl-postgres`), Redis (`rl-redis`), and three Docker web services built from `infra/Dockerfile`:
+
+| Render service | `MODULE` | Configured `PORT` | Notes |
+|---|---|---|---|
+| `service-a` | `service-a` | 8081 | Render also injects runtime `PORT`; Spring uses `${PORT:8081}`. |
+| `service-b` | `service-b` | 8082 | Same pattern. |
+| `api-gateway` | `api-gateway` | 8080 | Wired to Redis, Postgres, and `SERVICE_*_HOSTPORT` via `fromService` / `fromDatabase`. |
+
+The gateway receives `SERVICE_A_HOSTPORT` and `SERVICE_B_HOSTPORT` from Render’s internal **`hostport`** property (values like `service-a:8081` without `http://`; `application.yml` adds the scheme). `JWT_SECRET` is auto-generated on Render. Sync the blueprint from the Render dashboard or connect the Git repo with Blueprint deploy.
 
 ---
 
